@@ -1,0 +1,40 @@
+# Stage 1: run the whole stack locally with `docker compose up --build`.
+# Then open http://localhost:8080
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tracker
+      POSTGRES_PASSWORD: tracker   # fine locally; never do this in prod
+      POSTGRES_DB: tracker
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracker"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: ./apps/api
+    environment:
+      DATABASE_URL: postgres://tracker:tracker@db:5432/tracker
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  web:
+    build: ./apps/web
+    environment:
+      API_UPSTREAM: http://api:3000
+    depends_on:
+      - api
+    ports:
+      - "8080:8080"
+
+  # TODO(stretch): add redis + a `worker` service that emails/logs a reminder
+  # for applications with no update in 14 days.
+
+volumes:
+  db-data:

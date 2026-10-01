@@ -1,0 +1,20 @@
+# Routes outside traffic into the cluster. Only `web` is exposed; it proxies
+# /api to the api Service internally.
+# TODO(stage 2 decision): alternatively route /api straight to the api Service
+# here. What are the trade-offs (extra hop vs. one public entry point)?
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: job-tracker
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: job-tracker.localtest.me   # overlays change this
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port: { number: 80 }

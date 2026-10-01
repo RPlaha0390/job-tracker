@@ -1,0 +1,94 @@
+# Stage 5: CI/CD.
+#  - Every push / PR:  test the API, build the web app, build both images.
+#  - Push to main:     push images to ECR tagged with the git SHA, then deploy.
+#
+# Setup (after stage 4):
+#  1. Repo Settings > Secrets and variables > Actions > Variables:
+#       AWS_DEPLOY_ROLE_ARN  = terraform output github_deploy_role_arn
+#       EKS_CLUSTER_NAME     = terraform output cluster_name
+#       DEPLOY_ENABLED       = true
+#  No AWS access keys are stored anywhere - see infra/terraform/envs/dev/github-oidc.tf
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write # needed to request the GitHub OIDC token for AWS
+
+env:
+  AWS_REGION: eu-west-2
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: API tests
+        working-directory: apps/api
+        run: npm ci && npm test
+      - name: Web build
+        working-directory: apps/web
+        run: npm ci && npm run build
+      # TODO(stage 5): add linting, and an integration test job with a
+      # `services: postgres` container.
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    outputs:
+      registry: ${{ steps.ecr.outputs.registry }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push images
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ github.sha }}
+        run: |
+          docker build -t $REGISTRY/job-tracker-api:$TAG apps/api
+          docker build -t $REGISTRY/job-tracker-web:$TAG --build-arg APP_VERSION=${TAG::7} apps/web
+          docker push $REGISTRY/job-tracker-api:$TAG
+          docker push $REGISTRY/job-tracker-web:$TAG
+      # TODO(stage 5): use docker/build-push-action with layer caching and
+      # compare build times before/after.
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: dev # lets you add a manual approval gate in GitHub settings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy to EKS
+        env:
+          REGISTRY: ${{ needs.build-and-push.outputs.registry }}
+          TAG: ${{ github.sha }}
+        run: |
+          aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region $AWS_REGION
+          cd k8s/overlays/prod
+          kustomize edit set image \
+            job-tracker-api=$REGISTRY/job-tracker-api:$TAG \
+            job-tracker-web=$REGISTRY/job-tracker-web:$TAG
+          kubectl apply -k .
+          kubectl -n job-tracker rollout status deploy/api --timeout=180s
+          kubectl -n job-tracker rollout status deploy/web --timeout=120s
+      # TODO(stretch, GitOps): replace this job. CI commits the new tag to git
+      # instead, and Argo CD (running in the cluster) syncs it. Then CI needs
+      # no cluster access at all, and rollback = git revert.

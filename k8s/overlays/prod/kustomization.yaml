@@ -1,0 +1,28 @@
+# Stage 4/5: what runs on EKS. CI updates the image tags below on each deploy
+# (`kustomize edit set image ...`).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: job-tracker
+resources:
+  - namespace.yaml
+  - ../../base
+  # TODO(stage 4): add an ExternalSecret (External Secrets Operator) that
+  # creates the `db-credentials` Secret from AWS Secrets Manager, populated
+  # by the RDS module. Don't commit real credentials to git.
+
+images:
+  - name: job-tracker-api
+    newName: ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com/job-tracker-api   # TODO
+    newTag: latest   # CI replaces with the git SHA
+  - name: job-tracker-web
+    newName: ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com/job-tracker-web   # TODO
+    newTag: latest
+
+patches:
+  # TODO(stage 4): swap the local host for your real domain, and add TLS
+  # (cert-manager + Let's Encrypt, or an AWS ALB with an ACM certificate).
+  - target: { kind: Ingress, name: job-tracker }
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: job-tracker.example.com

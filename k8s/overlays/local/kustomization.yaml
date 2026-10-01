@@ -1,0 +1,26 @@
+# Apply with: kubectl apply -k k8s/overlays/local
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: job-tracker
+resources:
+  - namespace.yaml
+  - ../../base
+  - postgres.yaml
+
+# Images built locally and loaded into kind with `kind load docker-image`.
+images:
+  - name: job-tracker-api
+    newTag: local
+  - name: job-tracker-web
+    newTag: local
+
+# Local-only throwaway credentials. In prod these come from AWS Secrets Manager.
+secretGenerator:
+  - name: postgres-env
+    literals:
+      - POSTGRES_USER=tracker
+      - POSTGRES_PASSWORD=tracker
+      - POSTGRES_DB=tracker
+  - name: db-credentials
+    literals:
+      - DATABASE_URL=postgres://tracker:tracker@postgres:5432/tracker
