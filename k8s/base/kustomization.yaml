@@ -4,5 +4,6 @@ resources:
   - api.yaml
   - web.yaml
   - ingress.yaml
+  - migrate-job.yaml
 labels:
   - pairs: { app.kubernetes.io/part-of: job-tracker }

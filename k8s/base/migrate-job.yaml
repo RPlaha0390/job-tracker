@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+spec:                              # ── Job settings
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:                        # ── pod template
+    metadata:
+      labels: { app: migrate }
+    spec:                          # ── pod settings
+      restartPolicy: Never
+      containers:
+        - name: migrate            # ── container settings
+          image: job-tracker-api
+          command: ["node", "dist/migrate.js"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: DATABASE_URL

@@ -14,13 +14,22 @@ services:
       interval: 5s
       retries: 10
 
-  api:
+  migrate:
     build: ./apps/api
+    command: ["node", "dist/migrate.js"]
     environment:
       DATABASE_URL: postgres://tracker:tracker@db:5432/tracker
     depends_on:
       db:
         condition: service_healthy
+
+  api:
+    build: ./apps/api
+    environment:
+      DATABASE_URL: postgres://tracker:tracker@db:5432/tracker
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "3000:3000"
 
@@ -32,9 +41,6 @@ services:
       - api
     ports:
       - "8080:8080"
-
-  # TODO(stretch): add redis + a `worker` service that emails/logs a reminder
-  # for applications with no update in 14 days.
 
 volumes:
   db-data:

@@ -24,8 +24,13 @@ docker build -t job-tracker-api:local apps/api
 docker build -t job-tracker-web:local apps/web
 kind load docker-image job-tracker-api:local job-tracker-web:local --name job-tracker
 
-echo "==> Deploying"
+echo "==> Running migrations, then deploying"
+# Jobs can't be edited once created, so remove last run's Job first.
+kubectl -n job-tracker delete job migrate --ignore-not-found 2>/dev/null || true
 kubectl apply -k k8s/overlays/local
+kubectl -n job-tracker wait --for=condition=complete job/migrate --timeout=180s
+# Pick up freshly loaded :local images even when the YAML didn't change.
+kubectl -n job-tracker rollout restart deploy/api deploy/web
 kubectl -n job-tracker rollout status deploy/api --timeout=180s
 kubectl -n job-tracker rollout status deploy/web --timeout=120s
 
